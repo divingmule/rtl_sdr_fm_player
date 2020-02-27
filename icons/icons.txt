@@ -1,3 +1,3 @@
-Icons for this project are curticy of https://feathericons.com/
+Icons for this project are courtesy of https://feathericons.com/
  https://github.com/feathericons/feather
 Feather is licensed under the MIT License.
