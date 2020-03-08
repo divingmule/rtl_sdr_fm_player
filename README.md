@@ -28,11 +28,22 @@ For now we’re using Pythons keyboard module to control the volume. Because of 
 ```
 
 ### RTL SDR FM Streamer
-https://github.com/AlbrechtL/rtl_fm_streamer/blob/master/README.md
+https://github.com/AlbrechtL/rtl_fm_streamer/
 
 rtl_fm will work without any additional installation but it’s mono only as far as I can tell.
  RTL SDR Streamer provides stereo and seems, to me, to have better sound quality.
-To install you’ll have to build and make it. Follow the link to the README.md.
+To install you’ll have to build and make it.
+```
+	$ sudo apt-get install build-essential libusb-1.0-0-dev libev-dev
+	$ git clone https://github.com/AlbrechtL/rtl_fm_streamer.git
+	$ cd rtl_fm_streamer/
+	rtl_fm_streamer$ mkdir build
+	rtl_fm_streamer$ cd build
+	rtl_fm_streamer/build$ cmake ../
+	rtl_fm_streamer/build$ make
+	rtl_fm_streamer/build$ sudo make install
+	rtl_fm_streamer/build$ sudo ldconfig
+```
 
 ## Setup
 
