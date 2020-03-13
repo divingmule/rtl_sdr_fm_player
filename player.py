@@ -12,7 +12,7 @@ import json
 Stop = True
 Muted = False
 Server = False
-Tuning = 'stopped'
+Tuning = 'finished'
 CPU = 0
 
 config = configparser.ConfigParser()
@@ -206,43 +206,33 @@ def preset_station(freq):
         start(FREQ)
 
 
-def tune_up():
+def manual_tune(direction='down'):
     global FREQ
     global Tuning
     if not Server:
         if not Stop:
             stop()
-    if Tuning != 'started':
-        Tuning = 'started'
-    FREQ = str(round((float(FREQ) + 0.1), 1))
-    print('Tune up %s' % FREQ)
-
-
-def tune_down():
-    global FREQ
-    global Tuning
-    if not Server:
-        if not Stop:
-            stop()
-    if Tuning != 'started':
-        Tuning = 'started'
-    FREQ = str(round((float(FREQ) - 0.1), 1))
-    print('Tune down %s' % FREQ)
+    Tuning = 'started'
+    if direction == 'up':
+        FREQ = str(round((float(FREQ) + 0.1), 1))
+    else:
+        FREQ = str(round((float(FREQ) - 0.1), 1))
+    print('Tuning %s' % FREQ)
 
 
 def tuning_stop(event):
     global Tuning
-    Tuning = 'finished'
+    Tuning = 'stopped'
 
 
 def tune():
     global Tuning
-    if Tuning == 'finished':
+    if Tuning == 'stopped':
         if Server:
             set_frequency(FREQ)
         else:
             start(FREQ)
-        Tuning = 'stopped'
+        Tuning = 'finished'
         print('Tuning to %s' % FREQ)
     master.after(200, tune)
 
@@ -393,7 +383,7 @@ next_button.place(relx=0.87, rely=0.8)
 
 # tune down button
 tune_down_image = PhotoImage(file='%schevron-left.png' % icon_path)
-tune_down_button = Button(master, image=tune_down_image, command=tune_down,
+tune_down_button = Button(master, image=tune_down_image, command=manual_tune,
                           bg=background_color, activebackground=background_color)
 tune_down_button.config(repeatdelay=100, repeatinterval=200)
 tune_down_button.bind('<ButtonRelease>', tuning_stop)
@@ -401,7 +391,8 @@ tune_down_button.place(relx=0.25, rely=0.2)
 
 # tune up button
 tune_up_image = PhotoImage(file='%schevron-right.png' % icon_path)
-tune_up_button = Button(master, image=tune_up_image, command=tune_up,
+command = partial(manual_tune, 'up')
+tune_up_button = Button(master, image=tune_up_image, command=command,
                         bg=background_color, activebackground=background_color)
 tune_up_button.config(repeatdelay=100, repeatinterval=200)
 tune_up_button.bind('<ButtonRelease>', tuning_stop)
