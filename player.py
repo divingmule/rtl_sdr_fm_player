@@ -7,7 +7,7 @@ import configparser
 from functools import partial
 import socket
 import json
-
+import re
 
 Stop = True
 Muted = False
@@ -51,7 +51,7 @@ def make_request(payload):
         s.connect((host, int(api_port)))
         s.sendall(json.dumps(payload).encode('utf-8'))
         data = s.recv(1024)
-        print('Received', str(json.loads(data)))
+        return data
 
 
 def set_frequency(frequency):
@@ -62,8 +62,81 @@ def set_frequency(frequency):
 
 
 def get_power_level():
+    power_level = None
     payload = {"method": "GetPowerLevel"}
-    make_request(payload)
+    data = make_request(payload).decode('utf-8')
+    pl = re.search(':\\t(.+?)\\n', data)
+    if pl:
+        power_level = float(pl[0].strip(':\t\n'))
+    return power_level
+
+
+def scan(direction='down'):
+    # streamer must be started
+    if Stop:
+        return
+    global FREQ
+    power_level = get_power_level()
+    station = False
+    freq = float(FREQ)
+    while int(freq) in range(86, 109):
+        if direction == 'up':
+            freq = round(freq + 0.2, 1)
+        else:
+            freq = round(freq - 0.2, 1)
+        set_frequency(freq)
+        FREQ = str(freq)
+        time.sleep(.2)
+        power_level = get_power_level()
+        if power_level > -15:
+            station = True
+            print('Station found %s' % freq)
+            break
+    if station:
+        fine_tune(freq, power_level)
+
+
+def fine_tune(freq, power_level):
+    global FREQ
+    pl = power_level
+    test = freq
+    count = False
+    while pl >= power_level:
+        test = round(test + 0.1, 1)
+        set_frequency(test)
+        FREQ = str(test)
+        time.sleep(0.5)
+        pl = get_power_level()
+        print('PL', pl)
+        if pl > power_level:
+            count = True
+            print('Count', count)
+        else:
+            if count:
+                freq = round(test - 0.1, 1)
+                set_frequency(freq)
+                FREQ = str(freq)
+    if not count:
+        pl = power_level
+        test = freq
+        while pl >= power_level:
+            test = round(test - 0.1, 1)
+            set_frequency(test)
+            FREQ = str(test)
+            time.sleep(0.5)
+            pl = get_power_level()
+            print('PL', pl)
+            if pl > power_level:
+                count = True
+                print('Count', count)
+            else:
+                if count:
+                    freq = round(test + 0.1, 1)
+                    set_frequency(freq)
+                    FREQ = str(freq)
+        else:
+            set_frequency(freq)
+            FREQ = str(freq)
 
 
 # credit https://rosettacode.org/wiki/Linux_CPU_utilization
@@ -116,6 +189,7 @@ def start(freq):
         else:
             p_string = play_string % freq
         play_thread = threading.Thread(target=play, args=([p_string]))
+        play_thread.daemon = True
         play_thread.start()
         print(p_string)
         Stop = False
@@ -301,24 +375,22 @@ else:
 canvas = Canvas(master, width=800, height=480)
 canvas.config(background=background_color)
 canvas.pack()
-background_image = PhotoImage(file='background.png')
-canvas_back = canvas.create_image(400, 240, image=background_image)
 title_text = canvas.create_text(150, 40, font=('Quicksand Medium', 16, 'bold', 'italic'),
                                 fill=font_color, text='RTL-SDR FM Player')
-station_text = Label(master, font=("Quicksand Medium", 38, 'bold'), fg=font_color, bg=background_color)
+freq_text = Label(master, font=("Quicksand Medium", 86, 'bold'), fg=font_color, bg=background_color)
+freq_text.config(justify='left', fg=font_color, width=5, borderwidth=2, relief='flat')
+freq_text.place(x=240, y=200)
+station_text = Label(master, font=("Quicksand Medium", 18, 'bold'), fg=font_color, bg=background_color)
 station_text.config(justify='left', wraplength=560, fg=font_color)
-station_text.place(x=220, y=190)
-freq_text = Label(master, font=("Quicksand Medium", 38, 'bold'), fg=font_color, bg=background_color)
-freq_text.config(justify='left', fg=font_color, width=5, borderwidth=2, relief='sunken')
-freq_text.place(x=300, y=100)
+station_text.place(x=300, y=190)
 clock = Label(master, font=('Quicksand Medium', 32, 'bold'), bg=background_color, fg=font_color)
 clock.place(x=480, y=20)
 cpu_text = Label(master, font=('Quicksand Medium', 16, 'bold', 'italic'),
                  bg=background_color, fg=font_color)
-cpu_text.place(relx=0.6, rely=0.65)
+cpu_text.place(relx=0.8, rely=0.25)
 
-preset_x = 0.27
-preset_y = 0.81
+preset_x = 0.26
+preset_y = 0.8
 preset_list = frequencies[:5]
 if frequencies.index(FREQ) > frequencies.index(frequencies[-2]):
     preset_list = frequencies[(frequencies.index(frequencies[-1]) - 4):]
@@ -330,10 +402,13 @@ if len(preset_list) < 5:
     while len(preset_list) < 5:
         preset_list.append('Preset')
 for i in preset_list:
-    com = partial(preset_station, i)
-    b_name = Button(master, command=com, text=i,
-                    bg=background_color, activebackground=background_color, width=5)
-    b_name.config(font=('Quicksand Medium', 16, 'bold', 'italic'), pady=12)
+    command = partial(preset_station, i)
+    b_name = Button(master, text=i, bg=background_color, command=command,
+                    activebackground=background_color, width=5)
+    b_name.config(font=('Quicksand Medium', 16, 'bold', 'italic'), pady=17,
+                  highlightbackground='black')
+    # b_name.bind('<ButtonPress>', preset_press)
+    # b_name.bind('<ButtonRelease>', command)
     b_name.place(relx=preset_x, rely=preset_y)
     preset_x += 0.12
 
@@ -342,18 +417,21 @@ play_image = PhotoImage(file='%splay.png' % icon_path)
 stop_image = PhotoImage(file='%sstop-circle.png' % icon_path)
 play_button = Button(master, command=lambda: start(FREQ),
                      bg=background_color, activebackground=background_color)
-play_button.place(relx=0.05, rely=0.8)
+play_button.config(highlightbackground='black')
+play_button.place(relx=0.45, rely=0.2)
 
 # power button
 power_image = PhotoImage(file='%spower.png' % icon_path)
 power_button = Button(master, image=power_image, command=power_off,
                       bg=background_color, activebackground=background_color)
+power_button.config(highlightbackground='black')
 power_button.place(relx=0.87, rely=0.07)
 
 # vol up button
 vol_up_image = PhotoImage(file='%schevron-up.png' % icon_path)
 vol_up = Button(master, image=vol_up_image, command=vol_up,
                 bg=background_color, activebackground=background_color)
+vol_up.config(highlightbackground='black')
 vol_up.place(relx=0.05, rely=0.2)
 
 # vol mute button
@@ -361,44 +439,65 @@ vol_image = PhotoImage(file='%svolume-2.png' % icon_path)
 vol_mute_image = PhotoImage(file='%svolume-x.png' % icon_path)
 vol_button = Button(master, command=mute, bg=background_color,
                     activebackground=background_color)
+vol_button.config(highlightbackground='black')
 vol_button.place(relx=0.05, rely=0.4)
 
 # vol down button
 vol_down_image = PhotoImage(file='%schevron-down.png' % icon_path)
 vol_down = Button(master, image=vol_down_image, command=vol_down,
                   bg=background_color, activebackground=background_color)
+vol_down.config(highlightbackground='black')
 vol_down.place(relx=0.05, rely=0.60)
 
 # previous button
 previous_image = PhotoImage(file='%schevron-left.png' % icon_path)
 previous_button = Button(master, image=previous_image, command=previous_station,
                          bg=background_color, activebackground=background_color)
+previous_button.config(highlightbackground='black')
 previous_button.place(relx=0.16, rely=0.8)
 
 # next button
 next_image = PhotoImage(file='%schevron-right.png' % icon_path)
 next_button = Button(master, image=next_image, command=next_station,
                      bg=background_color, activebackground=background_color)
+next_button.config(highlightbackground='black')
 next_button.place(relx=0.87, rely=0.8)
 
 # tune down button
 tune_down_image = PhotoImage(file='%schevron-left.png' % icon_path)
 tune_down_button = Button(master, image=tune_down_image, command=manual_tune,
                           bg=background_color, activebackground=background_color)
-tune_down_button.config(repeatdelay=100, repeatinterval=200)
+tune_down_button.config(repeatdelay=100, repeatinterval=200, highlightbackground='black')
 tune_down_button.bind('<ButtonRelease>', tuning_stop)
-tune_down_button.place(relx=0.25, rely=0.2)
+tune_down_button.place(relx=0.35, rely=0.2)
 
 # tune up button
 tune_up_image = PhotoImage(file='%schevron-right.png' % icon_path)
 command = partial(manual_tune, 'up')
 tune_up_button = Button(master, image=tune_up_image, command=command,
                         bg=background_color, activebackground=background_color)
-tune_up_button.config(repeatdelay=100, repeatinterval=200)
+tune_up_button.config(repeatdelay=100, repeatinterval=200, highlightbackground='black')
 tune_up_button.bind('<ButtonRelease>', tuning_stop)
-tune_up_button.place(relx=0.61, rely=0.2)
+tune_up_button.place(relx=0.55, rely=0.2)
+
+# scan down button
+scan_down_image = PhotoImage(file='%sskip-back.png' % icon_path)
+scan_down_button = Button(master, image=scan_down_image, command=scan,
+                          bg=background_color, activebackground=background_color)
+scan_down_button.config(highlightbackground='black')
+scan_down_button.place(relx=0.25, rely=0.2)
+
+# scan up button
+scan_up_image = PhotoImage(file='%sskip-forward.png' % icon_path)
+command = partial(scan, 'up')
+scan_up_button = Button(master, image=scan_up_image, command=command,
+                        bg=background_color, activebackground=background_color)
+scan_up_button.config(highlightbackground='black')
+scan_up_button.place(relx=0.65, rely=0.2)
+
 
 cpu_thread = threading.Thread(target=get_cpu_utilisation)
+cpu_thread.daemon = True
 cpu_thread.start()
 
 tick()
