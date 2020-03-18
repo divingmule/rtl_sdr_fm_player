@@ -1,49 +1,21 @@
 from tkinter import *
-import subprocess
 import time
 import threading
 import keyboard
-import configparser
 from functools import partial
 import socket
 import json
 import re
+from settings import *
+import subprocess
+
 
 Stop = True
 Muted = False
-Server = False
 Tuning = 'finished'
+Timer = 0
 CPU = 0
-
-config = configparser.ConfigParser()
-config.read('settings.ini')
-
-host = config['Server']['ip address']
-port = config['Server']['server port']
-api_port = config['Server']['server api port']
-
-stations = dict({i: config['Stations'][i] for i in config['Stations']})
-frequencies = list(stations.keys())
-frequencies.sort()
 FREQ = frequencies[0]
-
-background_color = config['GUI']['background color']
-font_color = config['GUI']['text color']
-button_color = config['GUI']['button color']
-if button_color == 'black':
-    icon_path = 'icons/black_icons/'
-else:
-    icon_path = 'icons/white_icons/'
-
-play_string = ('rtl_fm -f %sM -M fm -s 170k -A std -l 0 -E deemp -r 44.1k | '
-               'ffplay -nodisp -f s16le -ac 1 -i pipe:0')
-
-if config['Server']['rtl_fm_streamer'] == 'true':
-    Server = True
-    play_string = ('ffplay -nodisp http://%s:%s/freq/%s' %
-                   (host, port, config['Server']['stereo']))
-    if config['Server']['start server'] == 'true':
-        subprocess.Popen(['rtl_fm_streamer', '-P', port])
 
 
 def make_request(payload):
@@ -134,7 +106,7 @@ def fine_tune(freq, power_level):
                     freq = round(test + 0.1, 1)
                     set_frequency(freq)
                     FREQ = str(freq)
-        else:
+        if not count:
             set_frequency(freq)
             FREQ = str(freq)
 
@@ -187,7 +159,7 @@ def start(freq):
             freq = int(float(freq) * 1000000)
             p_string = play_string.replace('/freq/', '/%s/' % freq)
         else:
-            p_string = play_string % freq
+            p_string = play_string.replace('rtl_fm', 'rtl_fm -f %sM' % freq)
         play_thread = threading.Thread(target=play, args=([p_string]))
         play_thread.daemon = True
         play_thread.start()
@@ -231,7 +203,7 @@ def next_station():
         else:
             FREQ = frequencies[current_frequency + 1]
     else:
-        freq_list = [i for i in frequencies if i > FREQ]
+        freq_list = [i for item in frequencies if item > FREQ]
         if freq_list:
             FREQ = freq_list[0]
         else:
@@ -254,7 +226,7 @@ def previous_station():
         else:
             FREQ = frequencies[current_frequency - 1]
     else:
-        freq_list = [i for i in frequencies if i < FREQ]
+        freq_list = [i for item in frequencies if item < FREQ]
         if freq_list:
             FREQ = freq_list[0]
         else:
@@ -267,17 +239,29 @@ def previous_station():
 
 
 def preset_station(freq):
-    if freq == 'Preset':
-        return
+    global FREQ
     if not Server:
         stop()
-    global FREQ
     FREQ = freq
     if Server:
         set_frequency(FREQ)
     else:
         time.sleep(1)
         start(FREQ)
+
+
+def preset_press(event):
+    global Timer
+    Timer = time.time()
+
+
+def preset_release(freq, event):
+    _time = time.time()
+    if _time - Timer > 2:
+        set_preset(freq, FREQ)
+        print(str(_time - Timer), freq)
+    else:
+        preset_station(freq)
 
 
 def manual_tune(direction='down'):
@@ -314,6 +298,7 @@ def tune():
 def power_off():
     stop()
     time.sleep(1)
+    write_config()
     if Server:
         subprocess.run(['killall', 'rtl_fm_streamer'])
     master.destroy()
@@ -402,13 +387,13 @@ if len(preset_list) < 5:
     while len(preset_list) < 5:
         preset_list.append('Preset')
 for i in preset_list:
-    command = partial(preset_station, i)
-    b_name = Button(master, text=i, bg=background_color, command=command,
+    command = partial(preset_release, i)
+    b_name = Button(master, text=i, bg=background_color,
                     activebackground=background_color, width=5)
     b_name.config(font=('Quicksand Medium', 16, 'bold', 'italic'), pady=17,
                   highlightbackground='black')
-    # b_name.bind('<ButtonPress>', preset_press)
-    # b_name.bind('<ButtonRelease>', command)
+    b_name.bind('<ButtonPress>', preset_press)
+    b_name.bind('<ButtonRelease>', command)
     b_name.place(relx=preset_x, rely=preset_y)
     preset_x += 0.12
 
@@ -495,6 +480,9 @@ scan_up_button = Button(master, image=scan_up_image, command=command,
 scan_up_button.config(highlightbackground='black')
 scan_up_button.place(relx=0.65, rely=0.2)
 
+
+if start_server:
+    subprocess.Popen(['rtl_fm_streamer', '-P', port])
 
 cpu_thread = threading.Thread(target=get_cpu_utilisation)
 cpu_thread.daemon = True
